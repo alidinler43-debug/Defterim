@@ -1,0 +1,58 @@
+name: APK oluştur
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.zip'
+      - '.github/workflows/apk.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: En son yüklenen projeyi aç
+        run: |
+          ZIP=$(git -c core.quotePath=false ls-files '*.zip' | while IFS= read -r f; do echo "$(git log -1 --format=%ct -- "$f") $f"; done | sort -n | tail -n 1 | cut -d' ' -f2-)
+          if [ -z "$ZIP" ]; then echo "Depoda zip dosyası yok"; exit 1; fi
+          echo "Kullanılan dosya: $ZIP"
+          rm -rf build-src
+          unzip -q -o "$ZIP" -d build-src
+          PROJ=$(dirname "$(find build-src -name settings.gradle | head -n 1)")
+          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+          echo "Proje klasörü: $PROJ"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: APK derle
+        working-directory: ${{ env.PROJ }}
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: APK dosyasını hazırla
+        run: |
+          APK=$(find "$PROJ" -name '*-release.apk' | head -n 1)
+          cp "$APK" Defterim.apk
+          ls -l Defterim.apk
+
+      - name: Releases'e koy
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Defterim 1.0.${{ github.run_number }}
+          files: Defterim.apk
+          make_latest: true
